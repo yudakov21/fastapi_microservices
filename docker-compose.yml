@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  orders_db:
+    image: postgres:16.3
+    volumes:
+      - postgres_data_orders:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: orders
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+
+  orders_service:
+    build: ./orders
+    command: ["./wait-for-it.sh", "orders_db", "5432", "--", "gunicorn", "app.main:app", "--workers", "4", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind=0.0.0.0:8000"]
+
+    volumes:
+      - ./orders/:/app/
+    ports:
+      - 8001:8000
+    environment:
+      - DATABASE_URL=postgres://postgres:pass@orders_db:5432/orders
+    depends_on:
+      orders_db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  payment_db:
+    image: postgres:16.3
+    volumes:
+      - postgres_data_payment:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: payments
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      retries: 5
+
+  payment_service:
+    build: ./payment
+    command: ["./wait-for-it.sh", "payment_db", "5432",  "--", "gunicorn", "app.main:app", "--workers", "4", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind=0.0.0.0:8000"]
+    volumes:
+      - ./payment/:/app/
+    ports:
+      - 8002:8000
+    environment:
+      - DATABASE_URL=postgres://postgres:pass@payment_db:5432/payments
+    depends_on:
+      payment_db:
+        condition: service_healthy
+
+volumes:
+  postgres_data_orders:
+  postgres_data_payment:
